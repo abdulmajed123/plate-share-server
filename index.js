@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -30,6 +30,32 @@ async function run() {
     app.get("/foods", async (req, res) => {
       const cursor = foodsCollection.find();
       const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.get("/foods/:id", async (req, res) => {
+      const { id } = req.params;
+      const query = { _id: new ObjectId(id) };
+      const result = await foodsCollection.findOne(query);
+      res.send(result);
+    });
+
+    app.get("/my-foods", async (req, res) => {
+      const email = req.query.email;
+      const result = await foodsCollection
+        .find({ donators_email: email })
+        .toArray();
+      res.send(result);
+    });
+
+    app.put("/foods/:id", async (req, res) => {
+      const id = req.params.id;
+      const data = req.body;
+      const query = { _id: new ObjectId(id) };
+      const update = {
+        $set: data,
+      };
+      const result = await foodsCollection.updateOne(query, update);
       res.send(result);
     });
 
