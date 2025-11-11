@@ -34,6 +34,12 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/highest-foods", async (req, res) => {
+      const cursor = foodsCollection.find().sort({ food_qty: -1 }).limit(6);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
     app.get("/foods/:id", async (req, res) => {
       const { id } = req.params;
       const query = { _id: new ObjectId(id) };
@@ -67,14 +73,6 @@ async function run() {
       res.send(result);
     });
 
-    // app.delete("/foods/:id");
-    // async (req, res) => {
-    //   const id = req.params.id;
-    //   const query = { _id: new ObjectId(id) };
-    //   const result = await foodsCollection.deleteOne(query);
-    //   res.send(result);
-    // };
-
     app.post("/foods", async (req, res) => {
       const data = req.body;
       const result = await foodsCollection.insertOne(data);
@@ -84,6 +82,36 @@ async function run() {
     app.post("/food-request", async (req, res) => {
       const data = req.body;
       const result = await foodsRequestCollection.insertOne(data);
+      res.send(result);
+    });
+
+    app.get("/food-request/:foodId", async (req, res) => {
+      const { foodId } = req.params;
+      const requests = await foodsRequestCollection.find({ foodId }).toArray();
+      res.send(requests);
+    });
+
+    // update request status
+    app.patch("/food-request/:id", async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: { status },
+      };
+      const result = await foodRequestCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
+    // update food status
+    app.patch("/foods/:id/status", async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: { food_status: status },
+      };
+      const result = await foodsCollection.updateOne(query, updateDoc);
       res.send(result);
     });
 
