@@ -99,28 +99,34 @@ async function run() {
       res.send(result);
     });
 
-    // ✅ Update food request status (Accept / Reject)
-    app.patch("/food-request/:id", async (req, res) => {
-      const id = req.params.id;
-      const { status } = req.body; // status = "accepted" or "rejected"
-      const query = { _id: new ObjectId(id) };
+    // Accept food request → update request + food status
+    app.patch("/food-request/accept/:requestId", async (req, res) => {
+      try {
+        const requestId = req.params.requestId;
+        const foodRequest = await foodsRequestCollection.findOne({
+          _id: new ObjectId(requestId),
+        });
+        if (!foodRequest) {
+          return res.status(404).send({ message: "Request not found" });
+        }
+        const foodId = foodRequest.foodId;
+        // food-request collection status  update
+        await foodsRequestCollection.updateOne(
+          { _id: new ObjectId(requestId) },
+          { $set: { status: "accepted" } }
+        );
 
-      const update = { $set: { status } };
-      const result = await foodsRequestCollection.updateOne(query, update);
+        //foods collection  status update
+        await foodsCollection.updateOne(
+          { _id: new ObjectId(foodId) },
+          { $set: { status: "donated" } }
+        );
 
-      res.send(result);
-    });
-
-    // ✅ Update food status to 'donated' (when accepted)
-    app.patch("/food/:id", async (req, res) => {
-      const id = req.params.id;
-      const { status } = req.body; // status = "donated"
-      const query = { _id: new ObjectId(id) };
-
-      const update = { $set: { food_status: status } };
-      const result = await foodsCollection.updateOne(query, update);
-
-      res.send(result);
+        res.send({ message: "Food request accepted and food donated!" });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server error" });
+      }
     });
 
     // Send a ping to confirm a successful connection
