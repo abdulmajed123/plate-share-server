@@ -116,17 +116,26 @@ async function run() {
           { $set: { status: "accepted" } }
         );
 
-        //foods collection  status update
+        //  foods collection  status update
         await foodsCollection.updateOne(
           { _id: new ObjectId(foodId) },
           { $set: { status: "donated" } }
         );
-
         res.send({ message: "Food request accepted and food donated!" });
       } catch (err) {
         console.error(err);
         res.status(500).send({ message: "Server error" });
       }
+    });
+
+    app.patch("/food-request/reject/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const update = {
+        $set: { status: "rejected" },
+      };
+      const result = await foodsRequestCollection.updateOne(query, update);
+      res.send(result);
     });
 
     // Send a ping to confirm a successful connection
