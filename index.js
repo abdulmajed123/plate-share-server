@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const app = express();
 const port = process.env.PORT || 3000;
@@ -7,8 +8,7 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-const uri =
-  "mongodb+srv://foodsDBUser:jTKLhnG69z8FwDk5@cluster0.1z9sk8c.mongodb.net/?appName=Cluster0";
+const uri = `mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@cluster0.1z9sk8c.mongodb.net/?appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -29,7 +29,7 @@ async function run() {
     const foodsRequestCollection = db.collection("food-request");
 
     app.get("/foods", async (req, res) => {
-      const cursor = foodsCollection.find();
+      const cursor = foodsCollection.find({ food_status: "Available" });
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -91,27 +91,35 @@ async function run() {
       res.send(requests);
     });
 
-    // update request status
-    app.patch("/food-request/:id", async (req, res) => {
-      const id = req.params.id;
-      const { status } = req.body;
-      const query = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: { status },
-      };
-      const result = await foodRequestCollection.updateOne(query, updateDoc);
+    app.get("/my-request", async (req, res) => {
+      const email = req.query.email;
+      const result = await foodsRequestCollection
+        .find({ email: email })
+        .toArray();
       res.send(result);
     });
 
-    // update food status
-    app.patch("/foods/:id/status", async (req, res) => {
+    // ✅ Update food request status (Accept / Reject)
+    app.patch("/food-request/:id", async (req, res) => {
       const id = req.params.id;
-      const { status } = req.body;
+      const { status } = req.body; // status = "accepted" or "rejected"
       const query = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: { food_status: status },
-      };
-      const result = await foodsCollection.updateOne(query, updateDoc);
+
+      const update = { $set: { status } };
+      const result = await foodsRequestCollection.updateOne(query, update);
+
+      res.send(result);
+    });
+
+    // ✅ Update food status to 'donated' (when accepted)
+    app.patch("/food/:id", async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body; // status = "donated"
+      const query = { _id: new ObjectId(id) };
+
+      const update = { $set: { food_status: status } };
+      const result = await foodsCollection.updateOne(query, update);
+
       res.send(result);
     });
 
