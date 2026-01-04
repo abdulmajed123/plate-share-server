@@ -22,20 +22,80 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const db = client.db("foodsDBUser");
     const foodsCollection = db.collection("foods");
+    const foodCollection = db.collection("food");
     const foodsRequestCollection = db.collection("food-request");
+    const usersCollection = db.collection("users");
 
     app.get("/foods", async (req, res) => {
-      const cursor = foodsCollection.find({ food_status: "Available" });
-      const result = await cursor.toArray();
-      res.send(result);
+      try {
+        let {
+          search = "",
+          location = "",
+          sort = "expire_date",
+          order = "asc",
+          page = 1,
+          limit = 8,
+        } = req.query;
+
+        page = Number(page) || 1;
+        limit = Number(limit) || 8;
+        order = order === "desc" ? -1 : 1;
+
+        // Only apply regex if search/location is not empty
+        const query = { food_status: "Available" };
+        if (search) query.food_name = { $regex: search, $options: "i" };
+        if (location)
+          query.pickup_location = { $regex: location, $options: "i" };
+
+        const skip = (page - 1) * limit;
+
+        const sortQuery = {};
+        sortQuery[sort] = order;
+
+        const foods = await foodsCollection
+          .find(query)
+          .sort(sortQuery)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const total = await foodsCollection.countDocuments(query);
+
+        res.status(200).json({ foods, total });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    // ==========================
+    app.get("/total-foods", async (req, res) => {
+      const {
+        search = "",
+        location = "",
+        sort = "expire_date",
+        order = "asc",
+      } = req.query;
+
+      const query = {
+        $or: [
+          { food_name: { $regex: search, $options: "i" } },
+          { donators_email: { $regex: search, $options: "i" } },
+          { location: { $regex: location, $options: "i" } },
+        ],
+      };
+
+      const sortQuery = { [sort]: order === "asc" ? 1 : -1 };
+
+      const foods = await foodsCollection.find(query).sort(sortQuery).toArray();
+      res.send({ foods, total: foods.length });
     });
 
     app.get("/highest-foods", async (req, res) => {
-      const cursor = foodsCollection.find().sort({ food_qty: -1 }).limit(6);
+      const cursor = foodsCollection.find().sort({ food_qty: -1 }).limit(8);
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -78,6 +138,81 @@ async function run() {
       const result = await foodsCollection.insertOne(data);
       res.send(result);
     });
+    app.post("/food", async (req, res) => {
+      const data = req.body;
+      const result = await foodCollection.insertOne(data);
+      res.send(result);
+    });
+
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+
+      if (!user?.email) {
+        return res.status(400).json({ message: "Email required" });
+      }
+
+      const existingUser = await usersCollection.findOne({
+        email: user.email,
+      });
+
+      if (existingUser) {
+        return res.json({ message: "User already exists" });
+      }
+
+      const result = await usersCollection.insertOne(user);
+      res.json(result); // ⚠️ res.send না, res.json
+    });
+
+    app.get("/users/:email/role", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+
+      res.send({ role: user?.role || "user" });
+    });
+
+    app.get("/users", async (req, res) => {
+      const result = await usersCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.patch("/users/role/:id", async (req, res) => {
+      const { role } = req.body;
+      const id = req.params.id;
+
+      const result = await usersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { role } }
+      );
+
+      res.send(result);
+    });
+
+    // GET /request-food with optional search
+    app.get("/request-food", async (req, res) => {
+      try {
+        const { q } = req.query; // ?q=searchTerm
+        let query = {};
+
+        if (q) {
+          // Search by name, email, location, status (case-insensitive)
+          query = {
+            $or: [
+              { name: { $regex: q, $options: "i" } },
+              { email: { $regex: q, $options: "i" } },
+              { location: { $regex: q, $options: "i" } },
+              { status: { $regex: q, $options: "i" } },
+            ],
+          };
+        }
+
+        const result = await foodsRequestCollection.find(query).toArray();
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Failed to fetch food requests" });
+      }
+    });
 
     app.post("/food-request", async (req, res) => {
       const data = req.body;
@@ -97,6 +232,70 @@ async function run() {
         .find({ email: email })
         .toArray();
       res.send(result);
+    });
+
+    // ------------------ Dashboard API ------------------
+    app.get("/user-dashboard/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        console.log("Dashboard request for:", email);
+
+        // 1️⃣ Total foods added by this user
+        const totalAdded = await foodsCollection.countDocuments({
+          donators_email: email,
+        });
+
+        // 2️⃣ Status-wise counts
+        const available = await foodsCollection.countDocuments({
+          donators_email: email,
+          food_status: "Available",
+        });
+        const delivered = await foodsCollection.countDocuments({
+          donators_email: email,
+          food_status: "Delivered",
+        });
+        const expired = await foodsCollection.countDocuments({
+          donators_email: email,
+          food_status: "Expired",
+        });
+
+        // 3️⃣ Total food requests made by this user
+        const totalRequested = await foodsRequestCollection.countDocuments({
+          email: email,
+        });
+
+        // 4️⃣ Recent Foods (latest 5 added)
+        const recentFoods = await foodsCollection
+          .find({ donators_email: email })
+          .sort({ created_at: -1 })
+          .limit(5)
+          .toArray();
+
+        // 5️⃣ Monthly Foods Added (all months)
+        const foods = await foodsCollection
+          .find({ donators_email: email })
+          .toArray();
+        const monthlyCounts = Array(12).fill(0);
+        foods.forEach((food) => {
+          const month = new Date(food.created_at).getMonth();
+          monthlyCounts[month]++;
+        });
+
+        res.send({
+          totalAdded,
+          totalRequested,
+          chartData: [
+            { name: "Available", value: available },
+            { name: "Delivered", value: delivered },
+            { name: "Expired", value: expired },
+          ],
+          recentFoods, // 🔹 latest 5 foods
+          monthlyCounts, // 🔹 0-11 month counts
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Dashboard data error" });
+      }
     });
 
     // Accept food request → update request + food status
@@ -139,7 +338,7 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
